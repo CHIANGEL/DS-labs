@@ -24,6 +24,17 @@
 #include "rdt_struct.h"
 #include "rdt_sender.h"
 
+short Internet_Checksum(struct packet *pkt) {
+    unsigned long checksum = 0; // 32位
+    // 前两个字节为checksum区域，需要跳过
+    for (int i = 2; i < RDT_PKTSIZE; i += 2) {
+        checksum += *(unsigned short *)(&(pkt->data[i]));
+    }
+    while (checksum >> 16) { // 若sum的高16位非零
+        checksum = (checksum >> 16) + (checksum & 0xffff);
+    }
+    return ~checksum;
+}
 
 /* sender initialization, called once at the very beginning */
 void Sender_Init()
