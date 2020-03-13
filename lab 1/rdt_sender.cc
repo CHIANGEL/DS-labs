@@ -1,16 +1,19 @@
 /*
  * FILE: rdt_sender.cc
  * DESCRIPTION: Reliable data transfer sender.
- * NOTE: This implementation assumes there is no packet loss, corruption, or 
- *       reordering.  You will need to enhance it to deal with all these 
- *       situations.  In this implementation, the packet format is laid out as 
- *       the following:
+ *              In this implementation, the packet format is laid out as the following:
  *       
- *       |<-  1 byte  ->|<-             the rest            ->|
- *       | payload size |<-             payload             ->|
+ *     1. The first packet of a message from sender to receiver
+ *       |<-  2 byte  ->|<-  4 byte  ->|<-  1 byte  ->|<-  4 byte  ->|<-  the rest  ->|
+ *       |   checksum   |  packet seq  | payload size | message size |     payload    |
  *
- *       The first byte of each packet indicates the size of the payload
- *       (excluding this single-byte header)
+ *     2. The rest packets of a message from sender to receiver
+ *       |<-  2 byte  ->|<-  4 byte  ->|<-  1 byte  ->|<-  the rest  ->|
+ *       |   checksum   |  packet seq  | payload size |     payload    |
+ *
+ *     3. The ACK packet from receiver to sender
+ *       |<-  2 byte  ->|<-  4 byte  ->|<-  the rest  ->|
+ *       |   checksum   |    ack seq   |   meaningless  |
  */
 
 
