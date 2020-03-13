@@ -63,3 +63,15 @@ void Receiver_FromLowerLayer(struct packet *pkt)
     if (msg->data!=NULL) free(msg->data);
     if (msg!=NULL) free(msg);
 }
+
+short Internet_Checksum(struct packet *pkt) {
+    unsigned long sum = 0; // 32位
+    // 前两个字节为checksum区域，需要跳过
+    for (int i = 2; i < RDT_PKTSIZE; i += 2) {
+        sum += *(unsigned short *)(&(pkt->data[i]))
+    }
+    while (sum >> 16) { // 若sum的高16位非零
+        sum = (sum >> 16) + (sum & 0xffff)
+    }
+    return ~sum;
+}
