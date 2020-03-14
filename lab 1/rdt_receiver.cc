@@ -131,7 +131,9 @@ void Receiver_FromLowerLayer(struct packet *pkt)
         int payload_size;
         while(1) {
             ++expected_packet_seq;
-            memcpy(&payload_size, pkt->data + sizeof(short) + sizeof(int), sizeof(char)); //???和参考不同
+            // memcpy(&payload_size, pkt->data + sizeof(short) + sizeof(int), sizeof(char)); //???和参考不同
+            // WAERNING: 如果用上面的方法给payload_size赋值会出错！
+            payload_size = pkt->data[HEADER_SIZE - 1];
 
             // 判断是不是第一个包，并将payload写入current_message
             if (message_cursor == 0) {
