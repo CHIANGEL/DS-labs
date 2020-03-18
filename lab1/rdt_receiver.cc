@@ -111,7 +111,7 @@ void Receiver_FromLowerLayer(struct packet *pkt)
         // 若条件允许，则存入接受者缓存
         int buffer_index = current_packet_seq % WINDOW_SIZE;
         if (buffer_validation[buffer_index] == 0) {
-            memcpy(&(receiver_buffer[buffer_index].data), pkt->data, RDT_PKTSIZE); //????为什么有&
+            memcpy(receiver_buffer[buffer_index].data, pkt->data, RDT_PKTSIZE);
             buffer_validation[buffer_index] = 1;
         }
         Send_Ack(expected_packet_seq - 1);
