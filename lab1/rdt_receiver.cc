@@ -56,14 +56,11 @@ static short Internet_Checksum(struct packet *pkt) {
 }
 
 void Send_Ack(int ack) {
-    //printf("        ===> constructing ack packet\n");
     packet ack_packet; // 其余位不用置零，有checksum保证正确性
     memcpy(ack_packet.data + sizeof(short), &ack, sizeof(int));
     short checksum = Internet_Checksum(&ack_packet);
     memcpy(ack_packet.data, &checksum, sizeof(short));
-    //printf("        ===> finish constructing ack packet\n");
     Receiver_ToLowerLayer(&ack_packet);
-    //printf("        ===> finish sending back ACK\n");
 }
 
 
@@ -111,33 +108,29 @@ void Receiver_FromLowerLayer(struct packet *pkt)
     memcpy(&current_packet_seq, pkt->data + sizeof(short), sizeof(int));
     if (expected_packet_seq < current_packet_seq && 
         current_packet_seq < expected_packet_seq + WINDOW_SIZE) {
-        //printf("===> SAVE in receiver buffer\n");
         // 若条件允许，则存入接受者缓存
         int buffer_index = current_packet_seq % WINDOW_SIZE;
         if (buffer_validation[buffer_index] == 0) {
             memcpy(&(receiver_buffer[buffer_index].data), pkt->data, RDT_PKTSIZE); //????为什么有&
             buffer_validation[buffer_index] = 1;
         }
-        Send_Ack(expected_packet_seq - 1); //??????????
+        Send_Ack(expected_packet_seq - 1);
         return ;
     }
     else if (current_packet_seq != expected_packet_seq) {
-        //printf("===> DONT KNOW\n");
-        Send_Ack(expected_packet_seq - 1); //??????????
+        Send_Ack(expected_packet_seq - 1);
         return ;
     }
     else if (current_packet_seq == expected_packet_seq) { // 收到了想要的数据包
-        //printf("===> RECEIVE what we want\n");
         int payload_size;
         while(1) {
             ++expected_packet_seq;
-            // memcpy(&payload_size, pkt->data + sizeof(short) + sizeof(int), sizeof(char)); //???和参考不同
+            // memcpy(&payload_size, pkt->data + sizeof(short) + sizeof(int), sizeof(char));
             // WAERNING: 如果用上面的方法给payload_size赋值会出错！
             payload_size = pkt->data[HEADER_SIZE - 1];
 
             // 判断是不是第一个包，并将payload写入current_message
             if (message_cursor == 0) {
-                //printf("    ===> FIRST packet\n");
                 if (current_message->size != 0) {
                     current_message->size = 0;
                     free(current_message->data);
@@ -149,30 +142,24 @@ void Receiver_FromLowerLayer(struct packet *pkt)
                 message_cursor += payload_size;
             }
             else {
-                //printf("    ===> REST packet\n");
                 memcpy(current_message->data + message_cursor, pkt->data + HEADER_SIZE, payload_size);
                 message_cursor += payload_size;
             }
-
-            //printf("    ===> checking finish or not\n");
 
             // 检查current_message是否构建完成
             if (message_cursor == current_message->size) {
                 Receiver_ToUpperLayer(current_message);
                 message_cursor = 0;
             }
-            //printf("    ===> checking packet in the buffer\n");
 
             // 检查receiver_buffer中有无可用的、且刚好和expected_seq对应的数据包
             int buffer_index = expected_packet_seq % WINDOW_SIZE;
             if (buffer_validation[buffer_index] == 1) {
-                //printf("    ===> usable packet in the buffer\n");
                 pkt = &receiver_buffer[buffer_index];
                 memcpy(&current_packet_seq, pkt->data + sizeof(short), sizeof(int));
                 buffer_validation[buffer_index] = 0;
             }
             else { // 缓存中没有可用数据包，则发回ack，结束
-                //printf("    ===> no usable packet in the buffer. Send back ACK\n");
                 Send_Ack(current_packet_seq);
                 return ;
             }
@@ -180,7 +167,7 @@ void Receiver_FromLowerLayer(struct packet *pkt)
     }
     else {
         // SHOULD NOT BE HERE !
-        //printf("ERROR: SHOULD NOT REACH HERE IN RECEIVER !");
+        printf("ERROR: SHOULD NOT REACH HERE IN RECEIVER !");
         assert(0);
     }
 }

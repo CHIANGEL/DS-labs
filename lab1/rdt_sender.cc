@@ -78,14 +78,11 @@ void Chunk_Message() {
     message msg = message_buffer[current_message_index];
     packet pkt;
     short checksum;
-    //printf("START CHUNKING WITH SIZE %d\n", msg.size);
     
     // 每次拆出一个数据包并存入packct_window，直到packet_window满了，或message_buffer中不再有待拆分的消息
     while (num_packet < MAX_WINDOW_SIZE && current_message_seq < next_message_seq) {
         // 若剩余待拆分的byte数量太多，不能装入一个packet的payload
-        ////printf("START CHUNKING WITH SIZE %d\n", msg.size);
         if (msg.size - message_buffer_cursor > MAX_PAYLOAD_SIZE) {
-            ////printf("    CASE 1: current_message_seq: %d; num_message: %d; next_message_seq: %d; message_buffer_cursor: %d\n", current_message_seq, num_message, next_message_seq, message_buffer_cursor);
             // 写包头和数据
             memcpy(pkt.data + sizeof(short), &next_packet_seq, sizeof(int));
             pkt.data[HEADER_SIZE - 1] = MAX_PAYLOAD_SIZE;
@@ -95,15 +92,13 @@ void Chunk_Message() {
             memcpy(pkt.data, &checksum, sizeof(short));
             // 将pkt的内容存入packet_window，位置为next_packet_index
             int next_packet_index = next_packet_seq % MAX_WINDOW_SIZE;
-            memcpy(packet_window[next_packet_index].data, &pkt, sizeof(packet)); //?????要不要加&
+            memcpy(packet_window[next_packet_index].data, &pkt, sizeof(packet));
             message_buffer_cursor += MAX_PAYLOAD_SIZE;
             ++next_packet_seq;
             ++num_packet;
-            ////printf("          : current_message_seq: %d; num_message: %d; next_message_seq: %d; message_buffer_cursor: %d\n", current_message_seq, num_message, next_message_seq, message_buffer_cursor);
         }
         // 剩余待拆分的byte可以一次性装入一个packet
         else if (message_buffer_cursor < msg.size) {
-            ////printf("    CASE 2: current_message_seq: %d; num_message: %d; next_message_seq: %d; message_buffer_cursor: %d\n", current_message_seq, num_message, next_message_seq, message_buffer_cursor);
             // 写包头和数据
             memcpy(pkt.data + sizeof(short), &next_packet_seq, sizeof(int));
             pkt.data[HEADER_SIZE - 1] = msg.size - message_buffer_cursor;
@@ -113,7 +108,7 @@ void Chunk_Message() {
             memcpy(pkt.data, &checksum, sizeof(short));
             // 将pkt的内容存入packet_window，位置为next_packet_index
             int next_packet_index = next_packet_seq % MAX_WINDOW_SIZE;
-            memcpy(packet_window[next_packet_index].data, &pkt, sizeof(packet)); //?????要不要加&
+            memcpy(packet_window[next_packet_index].data, &pkt, sizeof(packet));
             ++next_packet_seq;
             ++num_packet;
             // 当前消息拆分完毕，将其从message_buffer中移除 
@@ -123,21 +118,16 @@ void Chunk_Message() {
             // 判断message_buffer中是否还有未拆分的message
             assert(current_message_seq + num_message == next_message_seq);
             if (current_message_seq < next_message_seq) {
-                //printf("current_message_seq: %d; num_message: %d; next_message_seq: %d\n", current_message_seq, num_message, next_message_seq);
                 int current_message_index = current_message_seq % MAX_BUFFER_SIZE;
                 msg = message_buffer[current_message_index];
-                //printf("START CHUNKING WITH SIZE %d\n", msg.size);
             }
-            ////printf("            current_message_seq: %d; num_message: %d; next_message_seq: %d; message_buffer_cursor: %d\n", current_message_seq, num_message, next_message_seq, message_buffer_cursor);
         }
         else {
             // SHOULD NOT BE HERE
-            ////printf("    CASE 3: current_message_seq: %d; num_message: %d; next_message_seq: %d; message_buffer_cursor: %d\n", current_message_seq, num_message, next_message_seq, message_buffer_cursor);
-            //printf("ERROR: should not reach here in Chunk_Message() !");
+            printf("ERROR: should not reach here in Chunk_Message() !");
             assert(0);
         }
     }
-    //printf("FINISH chunking message\n");
 }
 
 void Send_Packet() {
@@ -188,12 +178,8 @@ void Sender_Final() {
 /* event handler, called when a message is passed from the upper layer at the 
    sender */
 void Sender_FromUpperLayer(struct message *msg) {
-    //printf("NEW MESSAGE WITH SIZE %d\n", msg->size);
-    //printf("          current_message_seq: %d; num_message: %d; next_message_seq: %d\n", current_message_seq, num_message, next_message_seq);
-            
     // 判断message_buffer是否还有余量
     if (num_message >= MAX_BUFFER_SIZE) {
-        //printf("ERROR: message_buffer overflow !");
         ASSERT(0);
     }
 
@@ -210,8 +196,7 @@ void Sender_FromUpperLayer(struct message *msg) {
     memcpy(message_buffer[next_message_index].data + sizeof(int), msg->data, msg->size);
     ++next_message_seq;
     ++num_message;
-    //printf("          current_message_seq: %d; num_message: %d; next_message_seq: %d\n", current_message_seq, num_message, next_message_seq);
- 
+    
     // 若计时器仍在计时，则不用操作，新到的message老老实实待在buffer里
     if (Sender_isTimerSet() == true) {
         return ;
