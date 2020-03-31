@@ -51,6 +51,8 @@
 - **A4**: The description of ```rte_mbuf``` is shown below:
     1. ```rte_mbuf``` structure describes a packet mbuf, which contains a data buffer. The image below shows the structure of rte_mbuf.
 
+        ![rte_mbuf](./rte_mbuf.jpg)
+
     2. DPDK will reserve some headroom when function ```rte_pktmbuf_alloc``` is called to allocate a new rte_mbuf.
     3. When trying to write data into rte_mbuf, we can use function ```rte_pktmbuf_prepend``` or ```rte_pktmbuf_append``` to increase the size of headroom or tailroom. 
 
@@ -62,11 +64,13 @@ Here are my workflow for part 2:
 2. create and enable a virtual NIC in VMWare (VMnet2).
 3. Wrtie and start the DPDK application ```send_udp```
 4. Use wireshark to capture the packets on VMnet2.
-5. Detect UDP packets from the virtual machine.
+5. Detect UDP packets from the virtual machine. I set the payload of each UDP packet to be "LinJianghao". The payload of every UDP packet the wireshark receives is of the same length as "LinJianghao" (length of 11).
 
 Here are my screenshots for part 2:
 
+![Screenshot-send_udp](./Screenshot-send_udp.PNG)
 
+![Screenshot-wireshark](./Screenshot-wireshark.PNG)
 
 ## Suggestions for lab2
 
