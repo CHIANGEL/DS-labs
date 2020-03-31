@@ -86,40 +86,40 @@ static inline int port_init(uint8_t port, struct rte_mempool *mbuf_pool)
  *       - data_len: the length of the data
  */
 static void build_udp_packet(struct rte_mbuf *m, const char* data, uint32_t data_len) {
-    struct ipv4_hdr *ipv4_hdr;
-	struct ether_hdr *eth_hdr;
-	struct udp_hdr *udp_hdr;
+	struct ether_hdr *ether_header;
+    struct ipv4_hdr *ipv4_header;
+	struct udp_hdr *udp_header;
 	
 	/* Initialize the pointers */
-	ipv4_hdr = rte_pktmbuf_mtod_offset(m, struct ipv4_hdr *, sizeof(struct ether_hdr));
-	eth_hdr = rte_pktmbuf_mtod(m, struct ether_hdr *);
-    udp_hdr = rte_pktmbuf_mtod_offset(m, struct udp_hdr *, sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr));
+	ether_header = rte_pktmbuf_mtod(m, struct ether_hdr *);
+    ipv4_header = rte_pktmbuf_mtod_offset(m, struct ipv4_hdr *, sizeof(struct ether_hdr));
+	udp_header = rte_pktmbuf_mtod_offset(m, struct udp_hdr *, sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr));
 
 	/* Fill the UDP header */
-	udp_hdr->src_port = 0xff << 8;
-	udp_hdr->dst_port = 0xfe << 8;
-	udp_hdr->dgram_len = (data_len + sizeof(struct udp_hdr)) << 8;
-	udp_hdr->dgram_cksum = 0xffff;
+	udp_header->src_port = 0xff << 8;
+	udp_header->dst_port = 0xfe << 8;
+	udp_header->dgram_len = (data_len + sizeof(struct udp_hdr)) << 8;
+	udp_header->dgram_cksum = 0xffff;
 
 	/* Fill the ethernet header */
 	struct ether_addr s_addr_tmp, d_addr_tmp;
 	rte_eth_macaddr_get(0, &s_addr_tmp);
 	rte_eth_macaddr_get(0, &d_addr_tmp);
-	eth_hdr->s_addr_tmp = s_addr_tmp;
-	eth_hdr->d_addr_tmp = d_addr_tmp;
-	eth_hdr->ether_type = rte_be_to_cpu_16(ETHER_TYPE_IPv4);
+	ether_header->s_addr = s_addr_tmp;
+	ether_header->d_addr = d_addr_tmp;
+	ether_header->ether_type = rte_be_to_cpu_16(ETHER_TYPE_IPv4);
 
 	/* Fill the ipv4 header */
-	ipv4_hdr->version_ihl = (4 << 4) | 5;
-	ipv4_hdr->type_of_service = 0;
-	ipv4_hdr->src_addr = IPv4(10,80,168,192);
-	ipv4_hdr->dst_addr = IPv4(6,80,168,192);
-	ipv4_hdr->total_length = 38 << 8 ;
-	ipv4_hdr->packet_id = 15 << 8;
-	ipv4_hdr->fragment_offset = 128;
-	ipv4_hdr->time_to_live = 0xff;
-	ipv4_hdr->next_proto_id = 0x11;
-	ipv4_hdr->hdr_checksum = rte_ipv4_cksum(ipv4_hdr);
+	ipv4_header->version_ihl = (4 << 4) | 5;
+	ipv4_header->type_of_service = 0;
+	ipv4_header->src_addr = IPv4(10, 80, 168, 192);
+	ipv4_header->dst_addr = IPv4(6, 80, 168, 192);
+	ipv4_header->total_length = 38 << 8 ;
+	ipv4_header->packet_id = 15 << 8;
+	ipv4_header->fragment_offset = 128;
+	ipv4_header->time_to_live = 0xff;
+	ipv4_header->next_proto_id = 0x11;
+	ipv4_header->hdr_checksum = rte_ipv4_cksum(ipv4_header);
 
 	/* Fill the UDP payload */
 	void *payload = rte_pktmbuf_mtod_offset(m, void *, sizeof(struct udp_hdr) + sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr));
@@ -143,9 +143,7 @@ static __attribute__((noreturn)) void lcore_main(void)
 	/* Check whether the port is on the same NUMA node as the polling thread. */
 	for (port = 0; port < nb_ports; port++) {
 		if (rte_eth_dev_socket_id(port) > 0 && rte_eth_dev_socket_id(port) != (int)rte_socket_id()) {
-			printf("WARNING, port %u is on remote NUMA node to "
-					"polling thread.\n\tPerformance will "
-					"not be optimal.\n", port);
+			printf("WARNING, port %u is on remote NUMA node to polling thread.\n\tPerformance will not be optimal.\n", port);
         }
     }
 	printf("\nCore %u forwarding packets. [Ctrl+C to quit]\n", rte_lcore_id());
