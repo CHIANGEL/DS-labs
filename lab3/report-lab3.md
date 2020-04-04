@@ -90,12 +90,16 @@ In Method 2, I use WRED to control service and make all different flows share ex
 
 ## Test results
 
-In this part, I put screen shots of the test result. Also, I modify the ```main.c``` to run repeated tests for 1000 times to get the average bandwidth of Flow 0.
+In this part, I put screen shots of the test result. Also, I modify the ```main.c``` to run repeated tests for 1,000,000 times to get the average bandwidth of Flow 0 and the average proportion. The modified source code is also handed in, named as ```main_for_test.c```.
 
 ### Method 1
 
 ![Screenshot-method1](./Screenshot-method1.PNG)
 
+My tested average bandwidth of Flow 0 is 1.31 Gbps. The average proportion is 7.2 : 4.1 : 2.0 : 1.0 .
+
 ### Method 2
 
 ![Screenshot-method2](./Screenshot-method2.PNG)
+
+My tested average bandwidth of Flow 0 is 1.42 Gbps. The average proportion is 7.8 : 3.9 : 1.9 : 1.0 .
