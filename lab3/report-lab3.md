@@ -94,6 +94,8 @@ In this part, I put screen shots of the test result. Also, I modify the ```main.
 
 ### Method 1
 
-
+![Screenshot-method1](./Screenshot-method1.PNG)
 
 ### Method 2
+
+![Screenshot-method2](./Screenshot-method2.PNG)
