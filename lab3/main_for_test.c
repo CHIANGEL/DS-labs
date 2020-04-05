@@ -57,7 +57,7 @@ main(int argc, char **argv)
 
         for (i = 0; i < APP_FLOWS_MAX; i++) {
             // printf("fid: %d, send: %d, pass: %d\n", i, cnt_send[i], cnt_pass[i]);
-            average_bandwidth[i] = average_bandwidth[i]  / (t + 1) * t + cnt_pass[i] / 1000000.0  / (t + 1);
+            average_bandwidth[i] = average_bandwidth[i]  / (t + 1) * t + cnt_pass[i] / 10000000.0 * 8 / (t + 1);
             average_proportion[i] = average_proportion[i]  / (t + 1) * t + 1.0 * cnt_pass[i] / cnt_pass[3]  / (t + 1);
         }
 
