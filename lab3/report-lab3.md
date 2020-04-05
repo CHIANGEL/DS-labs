@@ -96,10 +96,10 @@ In this part, I put screen shots of the test result. Also, I modify the ```main.
 
 ![Screenshot-method1](./Screenshot-method1.PNG)
 
-My tested average bandwidth of Flow 0 is 1.31 Gbps. The average proportion is 7.2 : 4.1 : 2.0 : 1.0 .
+My tested average bandwidth of Flow 0 is 1.19 Gbps. The average proportion is 7.2 : 4.1 : 2.0 : 1.0 .
 
 ### Method 2
 
 ![Screenshot-method2](./Screenshot-method2.PNG)
 
-My tested average bandwidth of Flow 0 is 1.42 Gbps. The average proportion is 7.8 : 3.9 : 1.9 : 1.0 .
+My tested average bandwidth of Flow 0 is 1.21 Gbps. The average proportion is 7.8 : 3.9 : 1.9 : 1.0 .
