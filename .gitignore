@@ -2,3 +2,9 @@
 *.log
 rdt_sim
 build
+mrtmp.*
+.idea
+.settings
+.classpath
+.project
+*.iml

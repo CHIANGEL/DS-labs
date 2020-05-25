@@ -4,11 +4,12 @@ import com.alibaba.fastjson.JSONArray;
 import sjtu.sdic.mapreduce.common.KeyValue;
 import sjtu.sdic.mapreduce.common.Utils;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.Key;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -65,7 +66,40 @@ public class Mapper {
      * @param mapF the user-defined map function
      */
     public static void doMap(String jobName, int mapTask, String inFile, int nReduce, MapFunc mapF) {
-       
+        // Read the input file
+        String input = "";
+        try{
+            input = new String(Files.readAllBytes(new File(inFile).toPath()));
+        }
+        catch (IOException e){
+            e.printStackTrace();
+        }
+
+        // Call the user-defined map function
+        List<KeyValue> output = mapF.map(inFile, input.toString());
+        List<KeyValue>[] subLists = new List[nReduce];
+        for (int i = 0; i < nReduce; ++i) {
+            subLists[i] = new ArrayList<>();
+        }
+        for (int i = 0; i < output.size(); ++i){
+            subLists[hashCode(output.get(i).key) % nReduce].add(output.get(i));
+        }
+
+        // Generate intermediate output files
+        for (int i = 0; i < nReduce; ++i){
+            String fileName = Utils.reduceName(jobName, mapTask, i);
+            File outputFile = new File(fileName);
+            OutputStream outputStream;
+            try{
+                outputStream = new FileOutputStream(outputFile);
+                String outStr = JSONArray.toJSONString(subLists[i]);
+                outputStream.write(outStr.getBytes());
+                outputStream.close();
+            }
+            catch (IOException e){
+                e.printStackTrace();
+            }
+        }
     }
 
     /**
