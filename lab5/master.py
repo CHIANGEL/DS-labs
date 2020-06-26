@@ -3,6 +3,7 @@ from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
 from socketserver import ThreadingMixIn
 from kazoo.client import KazooClient, KazooState
+from kazoo.protocol.states import EventType
 import subprocess
 import socket
 import errno
@@ -20,14 +21,18 @@ def zk_state_listener(state):
         print("MASTER: Warning: kazoo CONNECTED")
 
 GroupNum = 2
+server_process = [
+    [None, None],
+    [None, None]
+]
 GroupInfos = [
     [
-        {"host":"localhost", "port":9000, "state":"inactive", "proc":None},
-        {"host":"localhost", "port":9001, "state":"inactive", "proc":None},
+        {"host":"localhost", "port":9000, "state":"inactive"},
+        {"host":"localhost", "port":9001, "state":"inactive"},
     ],
     [
-        {"host":"localhost", "port":9100, "state":"inactive", "proc":None},
-        {"host":"localhost", "port":9101, "state":"inactive", "proc":None},
+        {"host":"localhost", "port":9100, "state":"inactive"},
+        {"host":"localhost", "port":9101, "state":"inactive"},
     ],
 ]
 assert GroupNum == len(GroupInfos)
@@ -68,16 +73,15 @@ class masterRPC:
         if lock_id == -1:
             return -1
         ReadLocks[lock_id] = zk.ReadLock("/lock/" + key, "READ:" + key)
-        print("MASTER: start acquiring lock")
+        print("MASTER: start acquiring read lock")
         ret = ReadLocks[lock_id].acquire()
-        print("MASTER: ret->{}".format(ret))
         if ret == True:
             return lock_id
         else:
             return -1
 
     def release_read_lock(self, lock_id):
-        print("MASTER: releasing write lock: {}".format(lock_id))
+        print("MASTER: releasing read lock: {}".format(lock_id))
         ReadLocks[lock_id].release()
         del ReadLocks[lock_id]
         LockIds[lock_id] = False
@@ -88,12 +92,14 @@ class masterRPC:
         if lock_id == -1:
             return -1
         WriteLocks[lock_id] = zk.WriteLock("/lock/" + key, "WRITE:" + key)
+        print("MASTER: start acquiring write lock")
         if WriteLocks[lock_id].acquire() == True:
             return lock_id
         else:
             return -1
 
     def release_write_lock(self, lock_id):
+        print("MASTER: releasing write lock: {}".format(lock_id))
         WriteLocks[lock_id].release()
         del WriteLocks[lock_id]
         LockIds[lock_id] = False
@@ -114,37 +120,63 @@ class masterRPC:
     def ping(self):
         return 0
 
-def bootServer():
-    for GroupId, GroupInfo in enumerate(GroupInfos):
-        for ServerId, ServerInfo in enumerate(GroupInfo):
-            print("MASTER: Booting Server {}-{}".format(GroupId, ServerId))
-            try:
-                command = ["python", "server.py", 
-                            "--host", ServerInfo['host'], 
-                            "--port", str(ServerInfo["port"]),
-                            "--GroupId", str(GroupId),
-                            "--ServerId", str(ServerId)]
-                GroupInfos[GroupId][ServerId]["proc"] = subprocess.Popen(command)
-            except Exception as e:
-                print("MASTER: ERROR when booting server {}-{}: {}".format(GroupId, ServerId, e))
-                exit()
-            boot_time = 0
-            tmpClient = xmlrpc.client.ServerProxy("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
-            while True:
-                time.sleep(CHECK_INTERVAL)
-                boot_time += CHECK_INTERVAL
-                try:
-                    if tmpClient.ping() == 0:
-                        print("MASTER: Capture pings from server {}-{} in {} seconds".format(GroupId, ServerId, boot_time))
-                        break
-                except socket.error as err:
-                    pass
-                    '''if err.errno != errno.ECONNREFUSED:
-                        raise err'''
+def updateGroupPeer(GroupId, GroupInfo):
+    print("MASTER: start updating peer info of group {}".format(GroupId))
+    for ServerId, ServerInfo in enumerate(GroupInfo):
+        if GroupInfos[GroupId][ServerId]['state'] == "active":
+            peer_info = (GroupInfo[:ServerId] + GroupInfo[ServerId + 1:])
+            serverClient = xmlrpc.client.ServerProxy("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
+            serverClient.update_peer(str(peer_info))
+
+def bootServer(GroupId, GroupInfo, ServerId, ServerInfo):
+    print("MASTER: Booting Server {}-{}".format(GroupId, ServerId))
+    try:
+        command = ["python", "server.py", 
+                    "--host", ServerInfo['host'], 
+                    "--port", str(ServerInfo["port"]),
+                    "--GroupId", str(GroupId),
+                    "--ServerId", str(ServerId)]
+        server_process[GroupId][ServerId] = subprocess.Popen(command)
+    except Exception as e:
+        print("MASTER: ERROR when booting server {}-{}: {}".format(GroupId, ServerId, e))
+        exit()
+    boot_time = 0
+    tmpClient = xmlrpc.client.ServerProxy("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
+    while True:
+        time.sleep(CHECK_INTERVAL)
+        boot_time += CHECK_INTERVAL
+        try:
+            if tmpClient.ping() == 0:
+                print("MASTER: Capture ping from server {}-{} in {} seconds".format(GroupId, ServerId, boot_time))
+                GroupInfos[GroupId][ServerId]["state"] = "active"
+                break
+        except socket.error as err:
+            if err.errno != errno.ECONNREFUSED:
+                raise err
+
+def server_crash_handler(event):
+    if event.type == EventType.CHILD:
+        pathStr = event.path
+        crash_group_id = int(pathStr[pathStr.find("-") + 1:])
+        print("MASTER: Server crash in group {}".format(crash_group_id))
+        for ServerId, ServerInfo in enumerate(GroupInfos[crash_group_id]):
+            GroupInfos[crash_group_id][ServerId]['state'] = "inactive"
+        children = zk.get_children(pathStr)
+        for idx, node_name in enumerate(children):
+            node = zk.get("{}/{}".format(pathStr, node_name))
+            alive_server_id = int(node[0].decode())
+            GroupInfos[crash_group_id][alive_server_id]['state'] = "active"
+            primary_servers[crash_group_id] = alive_server_id
+            print("MASTER: Server {}-{} still alive".format(crash_group_id, alive_server_id))
+        updateGroupPeer(crash_group_id, GroupInfos[crash_group_id])
 
 if __name__ == "__main__":
     with ThreadXMLRPCServer((master_host, master_port)) as server:
-        bootServer()
+        for GroupId, GroupInfo in enumerate(GroupInfos):
+            for ServerId, ServerInfo in enumerate(GroupInfo):
+                bootServer(GroupId, GroupInfo, ServerId, ServerInfo)
+            updateGroupPeer(GroupId, GroupInfo)
+            zk.get_children("/GroupMember/Group-{}".format(GroupId), watch=server_crash_handler)
         server.register_multicall_functions()
         server.register_instance(masterRPC())
         print("MASTER: Master booted on http://{}:{}".format(master_host, master_port))
