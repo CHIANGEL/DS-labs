@@ -10,3 +10,4 @@ mrtmp.*
 *.iml
 .vscode
 __pycache__
+KV_data

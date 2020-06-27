@@ -34,11 +34,19 @@ LockIds = [False for _ in range(LockNum)]
 CHECK_INTERVAL = 0.1
 
 def generate_lock_id():
-    for i in range(LockNum):
-        if LockIds[i] == False:
-            LockIds[i] = True
-            return i
+    for lock_id in range(LockNum):
+        if LockIds[lock_id] == False:
+            LockIds[lock_id] = True
+            return lock_id
     return -1
+
+def release_all_locks():
+    for lock_id in range(LockNum):
+        if LockIds[lock_id] == True:
+            if lock_id in ReadLocks:
+                ReadLocks[lock_id].release()
+            if lock_id in WriteLocks:
+                WriteLocks[lock_id].release()
 
 class LockServerRPC:
     def acquire_read_lock(self, key):
@@ -77,6 +85,43 @@ class LockServerRPC:
         del WriteLocks[lock_id]
         LockIds[lock_id] = False
         return True
+    
+    def acquire_system_read_lock(self):
+        lock_id = generate_lock_id()
+        if lock_id == -1:
+            return -1
+        ReadLocks[lock_id] = zk.ReadLock("/SystemLock")
+        print("LOCK_SERVER: start acquiring system-level read lock")
+        ret = ReadLocks[lock_id].acquire()
+        if ret == True:
+            return lock_id
+        else:
+            return -1
+
+    def release_system_read_lock(self, lock_id):
+        print("LOCK_SERVER: releasing system-level read lock: {}".format(lock_id))
+        ReadLocks[lock_id].release()
+        del ReadLocks[lock_id]
+        LockIds[lock_id] = False
+        return True
+    
+    def acquire_system_write_lock(self):
+        lock_id = generate_lock_id()
+        if lock_id == -1:
+            return -1
+        WriteLocks[lock_id] = zk.WriteLock("/SystemLock")
+        print("LOCK_SERVER: start acquiring system-level write lock")
+        if WriteLocks[lock_id].acquire() == True:
+            return lock_id
+        else:
+            return -1
+
+    def release_system_write_lock(self, lock_id):
+        print("LOCK_SERVER: releasing system-level write lock: {}".format(lock_id))
+        WriteLocks[lock_id].release()
+        del WriteLocks[lock_id]
+        LockIds[lock_id] = False
+        return True
 
     def ping(self):
         return 0
@@ -89,6 +134,7 @@ if __name__ == "__main__":
         try:
             server.serve_forever()
         except KeyboardInterrupt:
+            release_all_locks()
             zk.stop()
             print("\nKeyboard interrupt received, exiting.")
             exit(0)

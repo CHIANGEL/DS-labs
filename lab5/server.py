@@ -26,6 +26,8 @@ DELETE_SUCCESS = 0
 DELETE_ERROR = -1
 DELETE_PROP_SUCCESS = 0
 DELETE_PROP_ERROR = -1
+DUMP_SUCCESS = 0
+DUMP_ERROR = -1
 
 zk_host = "127.0.0.1"
 zk_port = 2181
@@ -38,7 +40,7 @@ port = -1
 GroupId = -1
 ServerId = -1
 PeerInfos = []
-model = Model()
+model = None
 
 class serverRPC:
     def get(self, key):
@@ -109,15 +111,24 @@ class serverRPC:
         except Exception as e:
             print("SERVER: DELETE PROP ERROR - {}".format(str(e)))
             return DELETE_PROP_ERROR
-    
-    def ping(self):
-        return 0
         
     def update_peer(self, peer_infos):
         global PeerInfos
         PeerInfos = eval(peer_infos)
         print("SERVER: peer info of server {}-{}: {}".format(GroupId, ServerId, PeerInfos))
         return True
+
+    def dump(self):
+        try:
+            print("SERVER: Dumping server {}-{}".format(GroupId, ServerId))
+            model.dump()
+            return DUMP_SUCCESS
+        except Exception as e:
+            print("SERVER: DUMP ERROR - {}".format(str(e)))
+            return DUMP_ERROR
+    
+    def ping(self):
+        return 0
 
 def register_zookeeper(GroupId, ServerId):
     zk.ensure_path("/GroupMember")
@@ -154,6 +165,7 @@ if __name__ == "__main__":
     ServerId = options.ServerId
     host = options.host
     port = options.port
+    model = Model(GroupId, ServerId)
     with ThreadXMLRPCServer((options.host, options.port)) as server:
         server.register_multicall_functions()
         server.register_instance(serverRPC())

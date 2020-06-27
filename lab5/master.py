@@ -46,6 +46,11 @@ zk.start()
 zk.add_listener(zk_state_listener)
 CHECK_INTERVAL = 0.1
 
+PERSISTENCE_SUCCESS = 0
+PERSISTENCE_ERROR = -1
+DUMP_SUCCESS = 0
+DUMP_ERROR = -1
+
 class masterRPC:
     def hash(self, key):
         return abs(hash(key)) % GroupNum
@@ -68,6 +73,22 @@ class masterRPC:
     def delete(self, key):
         target_server = self.redirect(key)
         return target_server
+
+    def make_persistence(self):
+        print("MASTER: sending dump command to currently active server")
+        try:
+            for GroupId, GroupInfo in enumerate(GroupInfos):
+                for ServerId, ServerInfo in enumerate(GroupInfo):
+                    if GroupInfos[GroupId][ServerId]['state'] == "active":
+                        print("MASTER: Dumping server {}-{}".format(GroupId, ServerId))
+                        serverClient = xmlrpc.client.ServerProxy("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
+                        ret = serverClient.dump()
+                        if ret == DUMP_ERROR:
+                            raise
+        except Exception as e:
+            print("MASTER: ERROR when dumping server: {}".format(e))
+            return PERSISTENCE_ERROR
+        return PERSISTENCE_SUCCESS
     
     def ping(self):
         return 0
