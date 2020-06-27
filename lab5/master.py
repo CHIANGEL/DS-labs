@@ -5,6 +5,7 @@ from socketserver import ThreadingMixIn
 from kazoo.client import KazooClient, KazooState
 from kazoo.protocol.states import EventType
 import subprocess
+import random
 import socket
 import errno
 import time
@@ -27,12 +28,12 @@ server_process = [
 ]
 GroupInfos = [
     [
-        {"host":"localhost", "port":9000, "state":"inactive"},
-        {"host":"localhost", "port":9001, "state":"inactive"},
+        {"host":"localhost", "port":9000, "state":"inactive", "weight":50},
+        {"host":"localhost", "port":9001, "state":"inactive", "weight":50},
     ],
     [
-        {"host":"localhost", "port":9100, "state":"inactive"},
-        {"host":"localhost", "port":9101, "state":"inactive"},
+        {"host":"localhost", "port":9100, "state":"inactive", "weight":50},
+        {"host":"localhost", "port":9101, "state":"inactive", "weight":50},
     ],
 ]
 assert GroupNum == len(GroupInfos)
@@ -51,11 +52,35 @@ PERSISTENCE_ERROR = -1
 DUMP_SUCCESS = 0
 DUMP_ERROR = -1
 
+random.seed(time.time())
+
 class masterRPC:
     def hash(self, key):
         return abs(hash(key)) % GroupNum
 
-    def redirect(self, key):
+    def read_redirect(self, key):
+        target_group_id = self.hash(key)
+        # Load balance for READ operation on active servers in target group
+        weight_data = {}
+        for ServerId, ServerInfo in enumerate(GroupInfos[target_group_id]):
+            if ServerInfo["state"] == "active":
+                weight_data[ServerId] = ServerInfo["weight"]
+        total_weight = sum(weight_data.values())
+        tmp = random.uniform(0, total_weight)
+        curr_sum = 0
+        target_server_id = None
+        for key in weight_data.keys():
+            curr_sum += weight_data[key]
+            if tmp <= curr_sum:
+                target_server_id = key
+                break
+        if target_server_id == None:
+            target_server_id = primary_servers[target_group_id]
+        ServerInfo = GroupInfos[target_group_id][target_server_id]
+        print("MASTER: redirect client request to server {}-{} on {}:{}".format(target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
+        return ("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
+
+    def write_redirect(self, key):
         target_group_id = self.hash(key)
         target_server_id = primary_servers[target_group_id]
         ServerInfo = GroupInfos[target_group_id][target_server_id]
@@ -63,15 +88,15 @@ class masterRPC:
         return ("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
 
     def get(self, key):
-        target_server = self.redirect(key)
+        target_server = self.read_redirect(key)
         return target_server
 
     def put(self, key):
-        target_server = self.redirect(key)
+        target_server = self.write_redirect(key)
         return target_server
 
     def delete(self, key):
-        target_server = self.redirect(key)
+        target_server = self.write_redirect(key)
         return target_server
 
     def make_persistence(self):
