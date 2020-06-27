@@ -10,11 +10,13 @@ DELETE_SUCCCESS = 0
 
 master_host = "localhost"
 master_port = 8000
+lock_server_host = "localhost"
+lock_server_port = 8001
     
-def get(arg, masterClient):
+def get(arg, masterClient, lockClient):
     key = arg[1]
     print("> Acquiring ReadLock...")
-    lock_id = masterClient.acquire_read_lock(key)
+    lock_id = lockClient.acquire_read_lock(key)
     if lock_id == -1:
         print("> Fail to acquire ReadLock")
         return
@@ -32,14 +34,14 @@ def get(arg, masterClient):
     else:
         print("> SUCCESS: {}".format(ret))
     print("> Releasing ReadLock...")
-    ret = masterClient.release_read_lock(lock_id)
+    ret = lockClient.release_read_lock(lock_id)
     print("> ReadLock released")
 
-def put(arg, masterClient):
+def put(arg, masterClient, lockClient):
     key = arg[1]
     value = arg[2]
     print("> Acquiring WriteLock...")
-    lock_id = masterClient.acquire_write_lock(key)
+    lock_id = lockClient.acquire_write_lock(key)
     if lock_id == -1:
         print("> Fail to acquire WriteLock")
         return
@@ -57,13 +59,13 @@ def put(arg, masterClient):
     else:
         print("> FAIL")
     print("> Releasing WriteLock...")
-    ret = masterClient.release_write_lock(lock_id)
+    ret = lockClient.release_write_lock(lock_id)
     print("> WriteLock released")
 
-def delete(arg, masterClient):
+def delete(arg, masterClient, lockClient):
     key = arg[1]
     print("> Acquiring WriteLock...")
-    lock_id = masterClient.acquire_write_lock(key)
+    lock_id = lockClient.acquire_write_lock(key)
     if lock_id == -1:
         print("> Fail to acquire WriteLock")
         return
@@ -81,37 +83,37 @@ def delete(arg, masterClient):
     else:
         print("> FAIL")
     print("> Releasing WriteLock...")
-    ret = masterClient.release_write_lock(lock_id)
+    ret = lockClient.release_write_lock(lock_id)
     print("> WriteLock released")
 
-def acquire_read_lock(arg, masterClient):
+def acquire_read_lock(arg, masterClient, lockClient):
     key = arg[1]
     print("> Acquiring ReadLock...")
-    lock_id = masterClient.acquire_read_lock(key)
+    lock_id = lockClient.acquire_read_lock(key)
     if lock_id == -1:
         print("> Fail to acquire ReadLock")
     else:
         print("> ReadLock acquired: {}".format(lock_id))
 
-def release_read_lock(arg, masterClient):
+def release_read_lock(arg, masterClient, lockClient):
     lock_id = arg[1]
     print("> Releasing ReadLock...")
-    ret = masterClient.release_read_lock(lock_id)
+    ret = lockClient.release_read_lock(lock_id)
     print("> ReadLock released")
 
-def acquire_write_lock(arg, masterClient):
+def acquire_write_lock(arg, masterClient, lockClient):
     key = arg[1]
     print("> Acquiring WriteLock...")
-    lock_id = masterClient.acquireacquire_write_lock(key)
+    lock_id = lockClient.acquireacquire_write_lock(key)
     if lock_id == -1:
         print("> Fail to acquire WriteLock: {}".format(lock_id))
     else:
         print("> WriteLock acquired")
 
-def release_write_lock(arg, masterClient):
+def release_write_lock(arg, masterClient, lockClient):
     lock_id = arg[1]
     print("> Releasing WriteLock...")
-    ret = masterClient.release_write_lock(lock_id)
+    ret = lockClient.release_write_lock(lock_id)
     print("> WriteLock released")
 
 command2func = {
@@ -144,6 +146,10 @@ if __name__ == "__main__":
     if masterClient.ping() != 0:
         print("ERROR: can not capture pings from master!")
         exit()
+    lockClient = xmlrpc.client.ServerProxy(("http://" + lock_server_host + ":" + str(lock_server_port)))
+    if lockClient.ping() != 0:
+        print("ERROR: can not capture pings from lock server!")
+        exit()
     
     start = time.time()
     commandCount = 0
@@ -155,7 +161,7 @@ if __name__ == "__main__":
         if CheckArgs(arg) == 0:
             continue
         func = command2func[arg[0]]
-        func(arg, masterClient)
+        func(arg, masterClient, lockClient)
         commandCount += 1
 
     allTime = time.time() - start

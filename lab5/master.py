@@ -44,18 +44,7 @@ zk_port = 2181
 zk = KazooClient(hosts=(zk_host + ":" + str(zk_port)))
 zk.start()
 zk.add_listener(zk_state_listener)
-ReadLocks = {}
-WriteLocks = {}
-LockNum = 1000
-LockIds = [False for _ in range(LockNum)]
 CHECK_INTERVAL = 0.1
-
-def generate_lock_id():
-    for i in range(LockNum):
-        if LockIds[i] == False:
-            LockIds[i] = True
-            return i
-    return -1
 
 class masterRPC:
     def hash(self, key):
@@ -67,43 +56,6 @@ class masterRPC:
         ServerInfo = GroupInfos[target_group_id][target_server_id]
         print("MASTER: redirect client request to server {}-{} on {}:{}".format(target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
         return ("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
-    
-    def acquire_read_lock(self, key):
-        lock_id = generate_lock_id()
-        if lock_id == -1:
-            return -1
-        ReadLocks[lock_id] = zk.ReadLock("/lock/" + key, "READ:" + key)
-        print("MASTER: start acquiring read lock")
-        ret = ReadLocks[lock_id].acquire()
-        if ret == True:
-            return lock_id
-        else:
-            return -1
-
-    def release_read_lock(self, lock_id):
-        print("MASTER: releasing read lock: {}".format(lock_id))
-        ReadLocks[lock_id].release()
-        del ReadLocks[lock_id]
-        LockIds[lock_id] = False
-        return True
-    
-    def acquire_write_lock(self, key):
-        lock_id = generate_lock_id()
-        if lock_id == -1:
-            return -1
-        WriteLocks[lock_id] = zk.WriteLock("/lock/" + key, "WRITE:" + key)
-        print("MASTER: start acquiring write lock")
-        if WriteLocks[lock_id].acquire() == True:
-            return lock_id
-        else:
-            return -1
-
-    def release_write_lock(self, lock_id):
-        print("MASTER: releasing write lock: {}".format(lock_id))
-        WriteLocks[lock_id].release()
-        del WriteLocks[lock_id]
-        LockIds[lock_id] = False
-        return True
 
     def get(self, key):
         target_server = self.redirect(key)
