@@ -4,49 +4,37 @@ from xmlrpc.server import SimpleXMLRPCRequestHandler
 from socketserver import ThreadingMixIn
 from kazoo.client import KazooClient, KazooState
 from kazoo.protocol.states import EventType
+import kazoo.exceptions
 import subprocess
+import pprint
 import random
 import socket
 import errno
 import time
+import json
 
 class ThreadXMLRPCServer(ThreadingMixIn, SimpleXMLRPCServer):
     pass
 
 def zk_state_listener(state):
     if state == KazooState.LOST:
-        print("MASTER: Warning: kazoo LOST")
+        print("INFO: Warning: kazoo LOST")
     elif state == KazooState.SUSPENDED:
-        print("MASTER: Warning: kazoo SUSPENDED")
+        print("INFO: Warning: kazoo SUSPENDED")
     else:
-        print("MASTER: Warning: kazoo CONNECTED")
+        print("INFO: Warning: kazoo CONNECTED")
 
-GroupNum = 2
-server_process = [
-    [None, None],
-    [None, None]
-]
-GroupInfos = [
-    [
-        {"host":"localhost", "port":9000, "state":"inactive", "weight":50},
-        {"host":"localhost", "port":9001, "state":"inactive", "weight":50},
-    ],
-    [
-        {"host":"localhost", "port":9100, "state":"inactive", "weight":50},
-        {"host":"localhost", "port":9101, "state":"inactive", "weight":50},
-    ],
-]
-assert GroupNum == len(GroupInfos)
-primary_servers = [0 for _ in range(GroupNum)]
-master_host = "localhost"
-master_port = 8000
+master_host = ""
+master_port = -1
+group_infos = {}
+
 zk_host = "localhost"
 zk_port = 2181
 zk = KazooClient(hosts=(zk_host + ":" + str(zk_port)))
 zk.start()
 zk.add_listener(zk_state_listener)
-CHECK_INTERVAL = 0.1
 
+CHECK_INTERVAL = 0.1
 PERSISTENCE_SUCCESS = 0
 PERSISTENCE_ERROR = -1
 DUMP_SUCCESS = 0
@@ -54,17 +42,63 @@ DUMP_ERROR = -1
 
 random.seed(time.time())
 
+def get_servers(event=None):
+    global zk
+    global group_infos
+    servers = zk.get_children('/GroupMember', watch=get_servers)
+    servers = [item for item in servers if "Master" not in item]
+    print("INFO: Watch event caught in /GroupMember! Start updating server infos")
+    new_group_infos = {}
+    for server in servers:
+        group_id = int(server[:server.find("-")])
+        server_id = int(server[server.find("-") + 1:])
+        if group_id not in new_group_infos:
+            new_group_infos[group_id] = []
+        data = zk.get('/GroupMember/{}'.format(server))[0]
+        if data:
+            server_info = eval(data.decode())
+            new_group_infos[group_id].append(server_info)
+    group_infos = new_group_infos
+    print("INFO: Get available server infos:")
+    pprint.pprint(group_infos)
+
+def master_setup():
+    global master_host
+    global master_port
+    global zk
+    global group_infos
+    print("INFO: Start getting master infos")
+    data = zk.get('/GroupMember/{}'.format("MasterHost"))[0]
+    if data:
+        master_host = data.decode()
+    else:
+        print("ERROR: Fail to get master port from zookeeper!")
+        raise
+    data = zk.get('/GroupMember/{}'.format("MasterPort"))[0]
+    if data:
+        master_port = int(data.decode())
+    else:
+        print("ERROR: Fail to get master port from zookeeper!")
+        raise
+    print("INFO: Get master addr: {}:{}".format(master_host, master_port))
+
 class masterRPC:
     def hash(self, key):
-        return abs(hash(key)) % GroupNum
+        global zk
+        global group_infos
+        hash_value =  abs(hash(key)) % len(group_infos)
+        group_ids = list(group_infos.keys())
+        group_ids.sort()
+        return group_ids[hash_value]
 
     def read_redirect(self, key):
+        global zk
+        global group_infos
         target_group_id = self.hash(key)
         # Load balance for READ operation on active servers in target group
         weight_data = {}
-        for ServerId, ServerInfo in enumerate(GroupInfos[target_group_id]):
-            if ServerInfo["state"] == "active":
-                weight_data[ServerId] = ServerInfo["weight"]
+        for ServerId, ServerInfo in enumerate(group_infos[target_group_id]):
+            weight_data[ServerId] = ServerInfo["weight"]
         total_weight = sum(weight_data.values())
         tmp = random.uniform(0, total_weight)
         curr_sum = 0
@@ -75,112 +109,103 @@ class masterRPC:
                 target_server_id = key
                 break
         if target_server_id == None:
-            target_server_id = primary_servers[target_group_id]
-        ServerInfo = GroupInfos[target_group_id][target_server_id]
-        print("MASTER: redirect client request to server {}-{} on {}:{}".format(target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
+            target_server_id = 0
+        ServerInfo = group_infos[target_group_id][target_server_id]
+        print("INFO: redirect client request to server {}-{} on {}:{}".format(target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
         return ("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
 
     def write_redirect(self, key):
+        global zk
+        global group_infos
         target_group_id = self.hash(key)
-        target_server_id = primary_servers[target_group_id]
-        ServerInfo = GroupInfos[target_group_id][target_server_id]
-        print("MASTER: redirect client request to server {}-{} on {}:{}".format(target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
+        # Load balance for READ operation on active servers in target group
+        weight_data = {}
+        for ServerId, ServerInfo in enumerate(group_infos[target_group_id]):
+            weight_data[ServerId] = ServerInfo["weight"]
+        total_weight = sum(weight_data.values())
+        tmp = random.uniform(0, total_weight)
+        curr_sum = 0
+        target_server_id = None
+        for key in weight_data.keys():
+            curr_sum += weight_data[key]
+            if tmp <= curr_sum:
+                target_server_id = key
+                break
+        if target_server_id == None:
+            target_server_id = 0
+        ServerInfo = group_infos[target_group_id][target_server_id]
+        print("INFO: redirect client request to server {}-{} on {}:{}".format(target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
         return ("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
 
     def get(self, key):
+        global zk
+        global group_infos
         target_server = self.read_redirect(key)
         return target_server
 
     def put(self, key):
+        global zk
+        global group_infos
         target_server = self.write_redirect(key)
         return target_server
 
     def delete(self, key):
+        global zk
+        global group_infos
         target_server = self.write_redirect(key)
         return target_server
 
     def make_persistence(self):
-        print("MASTER: sending dump command to currently active server")
+        global zk
+        global group_infos
+        print("INFO: sending dump command to currently active server")
         try:
-            for GroupId, GroupInfo in enumerate(GroupInfos):
-                for ServerId, ServerInfo in enumerate(GroupInfo):
-                    if GroupInfos[GroupId][ServerId]['state'] == "active":
-                        print("MASTER: Dumping server {}-{}".format(GroupId, ServerId))
-                        serverClient = xmlrpc.client.ServerProxy("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
-                        ret = serverClient.dump()
-                        if ret == DUMP_ERROR:
-                            raise
+            for group_id in group_infos:
+                group_info = group_infos[group_id]
+                for ServerId, ServerInfo in enumerate(group_info):
+                    print("INFO: Dumping server {}-{}".format(group_info, ServerId))
+                    serverClient = xmlrpc.client.ServerProxy("http://{}:{}".format(ServerInfo['host'], ServerInfo["port"]))
+                    ret = serverClient.dump()
+                    if ret == DUMP_ERROR:
+                        raise
         except Exception as e:
-            print("MASTER: ERROR when dumping server: {}".format(e))
+            print("INFO: ERROR when dumping server: {}".format(e))
             return PERSISTENCE_ERROR
         return PERSISTENCE_SUCCESS
     
     def ping(self):
         return 0
 
-def updateGroupPeer(GroupId, GroupInfo):
-    print("MASTER: start updating peer info of group {}".format(GroupId))
-    for ServerId, ServerInfo in enumerate(GroupInfo):
-        if GroupInfos[GroupId][ServerId]['state'] == "active":
-            peer_info = (GroupInfo[:ServerId] + GroupInfo[ServerId + 1:])
-            serverClient = xmlrpc.client.ServerProxy("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
-            serverClient.update_peer(str(peer_info))
-
-def bootServer(GroupId, GroupInfo, ServerId, ServerInfo):
-    print("MASTER: Booting Server {}-{}".format(GroupId, ServerId))
-    try:
-        command = ["python", "server.py", 
-                    "--host", ServerInfo['host'], 
-                    "--port", str(ServerInfo["port"]),
-                    "--GroupId", str(GroupId),
-                    "--ServerId", str(ServerId)]
-        server_process[GroupId][ServerId] = subprocess.Popen(command)
-    except Exception as e:
-        print("MASTER: ERROR when booting server {}-{}: {}".format(GroupId, ServerId, e))
-        exit()
-    boot_time = 0
-    tmpClient = xmlrpc.client.ServerProxy("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
-    while True:
-        time.sleep(CHECK_INTERVAL)
-        boot_time += CHECK_INTERVAL
-        try:
-            if tmpClient.ping() == 0:
-                print("MASTER: Capture ping from server {}-{} in {} seconds".format(GroupId, ServerId, boot_time))
-                GroupInfos[GroupId][ServerId]["state"] = "active"
-                break
-        except socket.error as err:
-            if err.errno != errno.ECONNREFUSED:
-                raise err
-
-def server_crash_handler(event):
-    if event.type == EventType.CHILD:
-        pathStr = event.path
-        crash_group_id = int(pathStr[pathStr.find("-") + 1:])
-        print("MASTER: Server crash in group {}".format(crash_group_id))
-        for ServerId, ServerInfo in enumerate(GroupInfos[crash_group_id]):
-            GroupInfos[crash_group_id][ServerId]['state'] = "inactive"
-        children = zk.get_children(pathStr)
-        for idx, node_name in enumerate(children):
-            node = zk.get("{}/{}".format(pathStr, node_name))
-            alive_server_id = int(node[0].decode())
-            GroupInfos[crash_group_id][alive_server_id]['state'] = "active"
-            primary_servers[crash_group_id] = alive_server_id
-            print("MASTER: Server {}-{} still alive".format(crash_group_id, alive_server_id))
-        updateGroupPeer(crash_group_id, GroupInfos[crash_group_id])
-
-if __name__ == "__main__":
+def main():
+    global master_host
+    global master_port
+    global zk
+    global group_infos
+    print("INFO: I am the primary master now!")
+    master_setup()
+    get_servers()
     with ThreadXMLRPCServer((master_host, master_port)) as server:
-        for GroupId, GroupInfo in enumerate(GroupInfos):
-            for ServerId, ServerInfo in enumerate(GroupInfo):
-                bootServer(GroupId, GroupInfo, ServerId, ServerInfo)
-            updateGroupPeer(GroupId, GroupInfo)
-            zk.get_children("/GroupMember/Group-{}".format(GroupId), watch=server_crash_handler)
         server.register_multicall_functions()
         server.register_instance(masterRPC())
-        print("MASTER: Master booted on http://{}:{}".format(master_host, master_port))
+        print("INFO: Master booted on http://{}:{}".format(master_host, master_port))
         try:
             server.serve_forever()
         except KeyboardInterrupt:
             zk.stop()
             print("\nKeyboard interrupt received, exiting.")
             exit(0)
+
+if __name__ == "__main__":
+    print_loop_flag = True
+    while True:
+        try:
+            zk.create("/GroupMember/MasterExists", "master".encode(), ephemeral=True)
+            break
+        except:
+            pass
+        if print_loop_flag:
+            print("INFO: Another master is on work. Looping as backups")
+            print_loop_flag = False
+        time.sleep(0.1)
+    zk.get_children("/GroupMember", watch=get_servers)
+    main()

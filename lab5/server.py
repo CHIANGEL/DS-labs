@@ -5,6 +5,7 @@ from socketserver import ThreadingMixIn
 from optparse import OptionParser
 from kazoo.client import KazooClient, KazooState
 from model import Model
+import pprint
 
 class ThreadXMLRPCServer(ThreadingMixIn, SimpleXMLRPCServer):
     pass
@@ -39,7 +40,7 @@ host = ""
 port = -1
 GroupId = -1
 ServerId = -1
-PeerInfos = []
+peer_infos = []
 model = None
 
 class serverRPC:
@@ -58,14 +59,13 @@ class serverRPC:
             print("SERVER: PUT ERROR - {}".format(str(e)))
             return PUT_ERROR
         try:
-            print("SERVER: start put propagate to peer server: {}".format(PeerInfos))
-            for peer_id, peer_info in enumerate(PeerInfos):
-                if peer_info["state"] == "active":
-                    print("SERVER: Put propagate to peer server {}:{}".format(peer_info['host'], peer_info["port"]))
-                    serverClient = xmlrpc.client.ServerProxy("http://" + peer_info['host']  + ":" +  str(peer_info["port"]))
-                    ret = serverClient.put_propagate(key, value)
-                    if ret == PUT_PROP_ERROR:
-                        raise
+            print("SERVER: start put propagate to peer server: {}".format(peer_infos))
+            for peer_id, peer_info in enumerate(peer_infos):
+                print("SERVER: Put propagate to peer server {}:{}".format(peer_info['host'], peer_info["port"]))
+                serverClient = xmlrpc.client.ServerProxy("http://{}:{}".format(peer_info['host'], peer_info["port"]))
+                ret = serverClient.put_propagate(key, value)
+                if ret == PUT_PROP_ERROR:
+                    raise
             return PUT_SUCCESS
         except Exception as e:
             print("SERVER: PUT ERROR - {}".format(str(e)))
@@ -89,18 +89,17 @@ class serverRPC:
             print("SERVER: DELETE ERROR - {}".format(str(e)))
             return DELETE_ERROR
         try:
-            print("SERVER: start delete propagate to peer server: {}".format(PeerInfos))
-            for peer_id, peer_info in enumerate(PeerInfos):
-                if peer_info["state"] == "active":
-                    print("SERVER: Delete propagate to peer server {}:{}".format(peer_info['host'], peer_info["port"]))
-                    serverClient = xmlrpc.client.ServerProxy("http://" + peer_info['host']  + ":" +  str(peer_info["port"]))
-                    ret = serverClient.delete_propagate(key)
-                    if ret == DELETE_PROP_ERROR:
-                        raise
+            print("SERVER: start delete propagate to peer server: {}".format(peer_infos))
+            for peer_id, peer_info in enumerate(peer_infos):
+                print("SERVER: Delete propagate to peer server {}:{}".format(peer_info['host'], peer_info["port"]))
+                serverClient = xmlrpc.client.ServerProxy("http://{}:{}".format(peer_info['host'], peer_info["port"]))
+                ret = serverClient.delete_propagate(key)
+                if ret == DELETE_PROP_ERROR:
+                    raise
             return DELETE_SUCCESS
         except Exception as e:
             print("SERVER: DELETE ERROR - {}".format(str(e)))
-            # 这里crash，如果是primary删除成功但是standby没有成功，那要不要把primary的值回滚？
+            # 这里crash，说明是primary删除成功但是standby没有成功，那要不要把primary的值回滚？
             return DELETE_ERROR
     
     def delete_propagate(self, key):
@@ -111,12 +110,6 @@ class serverRPC:
         except Exception as e:
             print("SERVER: DELETE PROP ERROR - {}".format(str(e)))
             return DELETE_PROP_ERROR
-        
-    def update_peer(self, peer_infos):
-        global PeerInfos
-        PeerInfos = eval(peer_infos)
-        print("SERVER: peer info of server {}-{}: {}".format(GroupId, ServerId, PeerInfos))
-        return True
 
     def dump(self):
         try:
@@ -130,11 +123,36 @@ class serverRPC:
     def ping(self):
         return 0
 
-def register_zookeeper(GroupId, ServerId):
+def register_zookeeper(ServerInfo):
+    global zk
     zk.ensure_path("/GroupMember")
-    value = str(ServerId)
-    zk_path = zk.create("/GroupMember/Group-{}/Server".format(GroupId), value.encode(), ephemeral=True, sequence=True, makepath=True)
-    print("SERVER: server {}-{} register on zk {}".format(GroupId, ServerId, zk_path))
+    value = str(ServerInfo)
+    try:
+        zk_path = zk.create("/GroupMember/{}-{}".format(ServerInfo.GroupId, ServerInfo.ServerId), value.encode(), ephemeral=True, makepath=True)
+        print("SERVER: server {}-{} register on zk {}".format(GroupId, ServerId, zk_path))
+    except:
+        print("ERROR: server {}-{} already exists!".format(GroupId, ServerId, zk_path))
+
+def get_peers(event=None):
+    global zk
+    global peer_infos
+    global GroupId
+    global ServerId
+    servers = zk.get_children('/GroupMember', watch=get_peers)
+    servers = [item for item in servers if "Master" not in item]
+    print("INFO: Watch event caught in /GroupMember! Start updating peer infos")
+    new_peer_infos = []
+    for server in servers:
+        group_id = int(server[:server.find("-")])
+        server_id = int(server[server.find("-") + 1:])
+        if group_id == GroupId and server_id != ServerId:
+            data = zk.get('/GroupMember/{}'.format(server))[0]
+            if data:
+                server_info = eval(data.decode())
+                new_peer_infos.append(server_info)
+    peer_infos = new_peer_infos
+    print("INFO: Get available peer infos:")
+    pprint.pprint(new_peer_infos)
 
 if __name__ == "__main__":
     parser = OptionParser(
@@ -160,17 +178,25 @@ if __name__ == "__main__":
         metavar="ServerId",
         type="int",
         help="server ServerId in the group")
+    parser.add_option(
+        "--weight",
+        metavar="weight",
+        type="int",
+        help="weight for load balance")
     (options, args) = parser.parse_args()
     GroupId = options.GroupId
     ServerId = options.ServerId
     host = options.host
     port = options.port
     model = Model(GroupId, ServerId)
+    print('SERVER: {}'.format(options))
+    zk.get_children("/GroupMember", watch=get_peers)
     with ThreadXMLRPCServer((options.host, options.port)) as server:
         server.register_multicall_functions()
         server.register_instance(serverRPC())
         print("SERVER: Server {}-{} booted on http://{}:{}".format(options.GroupId, options.ServerId, options.host, options.port))
-        register_zookeeper(options.GroupId, options.ServerId)
+        register_zookeeper(options)
+        get_peers()
         try:
             server.serve_forever()
         except KeyboardInterrupt:
