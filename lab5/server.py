@@ -5,6 +5,8 @@ from socketserver import ThreadingMixIn
 from optparse import OptionParser
 from kazoo.client import KazooClient, KazooState
 from model import Model
+from distributed_hash_table import DHT
+from lottery_algorithm import lottery
 import pprint
 
 class ThreadXMLRPCServer(ThreadingMixIn, SimpleXMLRPCServer):
@@ -41,7 +43,9 @@ port = -1
 GroupId = -1
 ServerId = -1
 peer_infos = []
+group_infos = {}
 model = None
+hash_table = None
 
 class serverRPC:
     def get(self, key):
@@ -82,6 +86,8 @@ class serverRPC:
             return PUT_PROP_ERROR
 
     def delete(self, key):
+        if key not in model.file_dict.data:
+            return DELETE_SUCCESS
         try:
             print("SERVER: Start delete operation on primary server")
             model.delete(key)
@@ -136,11 +142,35 @@ def register_zookeeper(ServerInfo):
 def get_peers(event=None):
     global zk
     global peer_infos
+    global group_infos
+    global hash_table
     global GroupId
     global ServerId
+    # Update group_infos
     servers = zk.get_children('/GroupMember', watch=get_peers)
     servers = [item for item in servers if "Master" not in item]
-    print("INFO: Watch event caught in /GroupMember! Start updating peer infos")
+    print("INFO: Watch event caught in /GroupMember! Start updating server infos")
+    new_group_infos = {}
+    for server in servers:
+        group_id = int(server[:server.find("-")])
+        server_id = int(server[server.find("-") + 1:])
+        if group_id not in new_group_infos:
+            new_group_infos[group_id] = []
+        data = zk.get('/GroupMember/{}'.format(server))[0]
+        if data:
+            server_info = eval(data.decode())
+            new_group_infos[group_id].append(server_info)
+    group_infos = new_group_infos
+    print("INFO: Get available server infos:")
+    pprint.pprint(group_infos)
+    GroupNode = [str(group_id) for group_id in group_infos]
+    hash_table = DHT(GroupNode)
+    print("INFO: Distributed hash table established:")
+    #pprint.pprint(hash_table._node_dict)
+    # Update peer_infos
+    servers = zk.get_children('/GroupMember', watch=get_peers)
+    servers = [item for item in servers if "Master" not in item]
+    print("INFO: Start updating peer infos")
     new_peer_infos = []
     for server in servers:
         group_id = int(server[:server.find("-")])

@@ -5,6 +5,8 @@ from socketserver import ThreadingMixIn
 from kazoo.client import KazooClient, KazooState
 from kazoo.protocol.states import EventType
 import kazoo.exceptions
+from distributed_hash_table import DHT
+from lottery_algorithm import lottery
 import subprocess
 import pprint
 import random
@@ -27,6 +29,7 @@ def zk_state_listener(state):
 master_host = ""
 master_port = -1
 group_infos = {}
+hash_table = None
 
 zk_host = "localhost"
 zk_port = 2181
@@ -44,6 +47,7 @@ random.seed(time.time())
 
 def get_servers(event=None):
     global zk
+    global hash_table
     global group_infos
     servers = zk.get_children('/GroupMember', watch=get_servers)
     servers = [item for item in servers if "Master" not in item]
@@ -61,6 +65,11 @@ def get_servers(event=None):
     group_infos = new_group_infos
     print("INFO: Get available server infos:")
     pprint.pprint(group_infos)
+    GroupNode = [str(group_id) for group_id in group_infos]
+    hash_table = DHT(GroupNode)
+    print("INFO: Distributed hash table established:")
+    pprint.pprint(hash_table._sort_list)
+    pprint.pprint(hash_table._node_dict)
 
 def master_setup():
     global master_host
@@ -84,32 +93,15 @@ def master_setup():
 
 class masterRPC:
     def hash(self, key):
-        global zk
-        global group_infos
-        hash_value =  abs(hash(key)) % len(group_infos)
-        group_ids = list(group_infos.keys())
-        group_ids.sort()
-        return group_ids[hash_value]
+        global hash_table
+        target_vnode, target_group_id = hash_table.get_node(key)
+        return int(target_group_id)
 
     def read_redirect(self, key):
         global zk
         global group_infos
         target_group_id = self.hash(key)
-        # Load balance for READ operation on active servers in target group
-        weight_data = {}
-        for ServerId, ServerInfo in enumerate(group_infos[target_group_id]):
-            weight_data[ServerId] = ServerInfo["weight"]
-        total_weight = sum(weight_data.values())
-        tmp = random.uniform(0, total_weight)
-        curr_sum = 0
-        target_server_id = None
-        for key in weight_data.keys():
-            curr_sum += weight_data[key]
-            if tmp <= curr_sum:
-                target_server_id = key
-                break
-        if target_server_id == None:
-            target_server_id = 0
+        target_server_id = lottery(group_infos, target_group_id)
         ServerInfo = group_infos[target_group_id][target_server_id]
         print("INFO: redirect client request to server {}-{} on {}:{}".format(target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
         return ("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
@@ -118,21 +110,7 @@ class masterRPC:
         global zk
         global group_infos
         target_group_id = self.hash(key)
-        # Load balance for READ operation on active servers in target group
-        weight_data = {}
-        for ServerId, ServerInfo in enumerate(group_infos[target_group_id]):
-            weight_data[ServerId] = ServerInfo["weight"]
-        total_weight = sum(weight_data.values())
-        tmp = random.uniform(0, total_weight)
-        curr_sum = 0
-        target_server_id = None
-        for key in weight_data.keys():
-            curr_sum += weight_data[key]
-            if tmp <= curr_sum:
-                target_server_id = key
-                break
-        if target_server_id == None:
-            target_server_id = 0
+        target_server_id = lottery(group_infos, target_group_id)
         ServerInfo = group_infos[target_group_id][target_server_id]
         print("INFO: redirect client request to server {}-{} on {}:{}".format(target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
         return ("http://" + ServerInfo['host']  + ":" +  str(ServerInfo["port"]))
@@ -199,7 +177,7 @@ if __name__ == "__main__":
     print_loop_flag = True
     while True:
         try:
-            zk.create("/GroupMember/MasterExists", "master".encode(), ephemeral=True)
+            zk.create("/Master/MasterExists", "master".encode(), ephemeral=True, makepath=True)
             break
         except:
             pass

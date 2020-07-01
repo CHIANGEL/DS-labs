@@ -46,6 +46,9 @@ def get(arg, masterClient):
         print("> ReadLock acquired")
     else:
         print("> Fail to acquire ReadLock")
+        print("> Releasing System-level ReadLock...")
+        system_read_lock.release()
+        print("> System-level ReadLock released")
         return
     target_server = masterClient.get(key)
     print("> Redirected to server: {}".format(target_server))
@@ -53,10 +56,22 @@ def get(arg, masterClient):
     try:
         if serverClient.ping() != 0:
             print("> ERROR: can not capture pings from target server!")
+            print("> Releasing ReadLock...")
+            read_lock.release()
+            print("> ReadLock released")
+            print("> Releasing System-level ReadLock...")
+            system_read_lock.release()
+            print("> System-level ReadLock released")
             return
         ret = serverClient.get(key)
     except:
         print("> Target server has crashed! Please retry!")
+        print("> Releasing ReadLock...")
+        read_lock.release()
+        print("> ReadLock released")
+        print("> Releasing System-level ReadLock...")
+        system_read_lock.release()
+        print("> System-level ReadLock released")
         return
     if ret == GET_ERROR:
         print("> FAIL")
@@ -88,6 +103,9 @@ def put(arg, masterClient):
         print("> WriteLock acquired")
     else:
         print("> Fail to acquire WriteLock")
+        print("> Releasing System-level ReadLock...")
+        system_read_lock.release()
+        print("> System-level ReadLock released")
         return
     target_server = masterClient.put(key)
     print("> Redirected to server: {}".format(target_server))
@@ -95,10 +113,22 @@ def put(arg, masterClient):
     try:
         if serverClient.ping() != 0:
             print("> ERROR: can not capture pings from target server!")
+            print("> Releasing ReadLock...")
+            write_lock.release()
+            print("> ReadLock released")
+            print("> Releasing System-level ReadLock...")
+            system_read_lock.release()
+            print("> System-level ReadLock released")
             return
         ret = serverClient.put(key, value)
     except:
         print("> Target server has crashed! Please retry!")
+        print("> Releasing ReadLock...")
+        write_lock.release()
+        print("> ReadLock released")
+        print("> Releasing System-level ReadLock...")
+        system_read_lock.release()
+        print("> System-level ReadLock released")
         return
     if ret == PUT_SUCCESS:
         print("> SUCCESS")
@@ -129,6 +159,9 @@ def delete(arg, masterClient):
         print("> WriteLock acquired")
     else:
         print("> Fail to acquire WriteLock")
+        print("> Releasing System-level ReadLock...")
+        system_read_lock.release()
+        print("> System-level ReadLock released")
         return
     target_server = masterClient.delete(key)
     print("> Redirected to server: {}".format(target_server))
@@ -136,13 +169,25 @@ def delete(arg, masterClient):
     try:
         if serverClient.ping() != 0:
             print("> ERROR: can not capture pings from target server!")
+            print("> Releasing ReadLock...")
+            write_lock.release()
+            print("> ReadLock released")
+            print("> Releasing System-level ReadLock...")
+            system_read_lock.release()
+            print("> System-level ReadLock released")
             return
         ret = serverClient.delete(key)
     except:
         print("> FAIL: Target server has crashed! Please retry!")
+        print("> Releasing ReadLock...")
+        write_lock.release()
+        print("> ReadLock released")
+        print("> Releasing System-level ReadLock...")
+        system_read_lock.release()
+        print("> System-level ReadLock released")
         return
     if ret == DELETE_SUCCCESS:
-        print("> SUCCESS")
+        print("> SUCCESS: Now there are no key ({}) in the server!".format(key))
     else:
         print("> FAIL")
     print("> Releasing WriteLock...")
