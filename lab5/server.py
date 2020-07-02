@@ -125,7 +125,32 @@ class serverRPC:
         except Exception as e:
             print("SERVER: DUMP ERROR - {}".format(str(e)))
             return DUMP_ERROR
-    
+
+    def adjust(self):
+        global zk
+        global hash_table
+        global GroupId
+        global group_infos
+        for key in list(model.file_dict.data.keys()):
+            target_vnode, target_group_id = hash_table.get_node(key)
+            if int(target_group_id) != int(GroupId):
+                target_server_id = lottery(group_infos, target_group_id)
+                ServerInfo = group_infos[target_group_id][target_server_id]
+                print("Transfer key {} to server {}-{} on {}:{}".format(key, target_group_id, target_server_id, ServerInfo['host'], ServerInfo["port"]))
+                serverClient = xmlrpc.client.ServerProxy("http://{}:{}".format(ServerInfo['host'], ServerInfo["port"]))
+                serverClient.put(key, model.file_dict.data[key])
+                self.delete(key)
+        return True
+
+    def sync_send(self, target_server):
+        serverClient = xmlrpc.client.ServerProxy(target_server)
+        serverClient.sync_recv(str(model.file_dict.data))
+        return True
+
+    def sync_recv(self, dict_str):
+        model.file_dict.data = eval(dict_str)
+        return True
+
     def ping(self):
         return 0
 

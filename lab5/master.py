@@ -42,6 +42,8 @@ PERSISTENCE_SUCCESS = 0
 PERSISTENCE_ERROR = -1
 DUMP_SUCCESS = 0
 DUMP_ERROR = -1
+ADJUST_ERROR = -1
+ADJUST_SUCCESS = 0
 
 random.seed(time.time())
 
@@ -62,14 +64,76 @@ def get_servers(event=None):
         if data:
             server_info = eval(data.decode())
             new_group_infos[group_id].append(server_info)
-    group_infos = new_group_infos
-    print("INFO: Get available server infos:")
-    pprint.pprint(group_infos)
-    GroupNode = [str(group_id) for group_id in group_infos]
+    print("INFO: Get available new server infos:")
+    pprint.pprint(new_group_infos)
+    GroupNode = [str(group_id) for group_id in new_group_infos]
     hash_table = DHT(GroupNode)
     print("INFO: Distributed hash table established:")
     pprint.pprint(hash_table._sort_list)
     pprint.pprint(hash_table._node_dict)
+    set_new_group_infos = set([group_id for group_id in new_group_infos])
+    set_group_infos = set([group_id for group_id in group_infos])
+    if event == None:
+        # Master Init. Just update group_infos
+        print("INFO: Master init")
+        system_write_lock = zk.WriteLock("/SystemLock")
+        print("INFO: Acquiring system write lock")
+        system_write_lock.acquire()
+        print("INFO: System write lock acquired")
+        for group_id in new_group_infos:
+            server_info = new_group_infos[group_id][0]
+            print("INFO: Data transfer operations on Server {}:{}".format(server_info['host'], server_info["port"]))
+            serverClient = xmlrpc.client.ServerProxy("http://{}:{}".format(server_info['host'], server_info["port"]))
+            ret = serverClient.adjust()
+            if ret == ADJUST_ERROR:
+                raise
+        group_infos = new_group_infos
+        system_write_lock.release()
+        print("INFO: System write lock released")
+    elif set_group_infos.issubset(set_new_group_infos) == False:
+        # Some group totally crush! Can not provide service any more!
+        print(set_group_infos)
+        print(set_new_group_infos)
+        print("ERROR: Some group totally crush! Can not provide service any more!")
+        zk.create("/ServiceStop")
+        exit(0)
+    elif len(set_group_infos) < len(set_new_group_infos):
+        # New groups are added. Need to block out to transfer data
+        print("INFO: New groups are added. Need to block out to transfer data")
+        system_write_lock = zk.WriteLock("/SystemLock")
+        print("INFO: Acquiring system write lock")
+        system_write_lock.acquire()
+        print("INFO: System write lock acquired")
+        for group_id in new_group_infos:
+            server_info = new_group_infos[group_id][0]
+            print("INFO: Data transfer operations on Server {}:{}".format(server_info['host'], server_info["port"]))
+            serverClient = xmlrpc.client.ServerProxy("http://{}:{}".format(server_info['host'], server_info["port"]))
+            ret = serverClient.adjust()
+            if ret == ADJUST_ERROR:
+                raise
+        group_infos = new_group_infos
+        system_write_lock.release()
+        print("INFO: System write lock released")
+    else:
+        # Seek for new standbys
+        print("INFO: Seek for new standbys")
+        system_write_lock = zk.WriteLock("/SystemLock")
+        print("INFO: Acquiring system write lock")
+        system_write_lock.acquire()
+        print("INFO: System write lock acquired")
+        for group_id in new_group_infos:
+            server_infos = new_group_infos[group_id]
+            if len(new_group_infos[group_id]) > len(group_infos[group_id]):
+                # New standby, need to sync data
+                source_server = group_infos[group_id][0]
+                print("INFO: Sync data source from Server {}:{}".format(source_server['host'], source_server["port"]))
+                serverClient = xmlrpc.client.ServerProxy("http://{}:{}".format(source_server['host'], source_server["port"]))
+                for server_info in server_infos:
+                    if server_info not in group_infos[group_id]:
+                        serverClient.sync_send("http://{}:{}".format(server_info['host'], server_info["port"]))
+        group_infos = new_group_infos
+        system_write_lock.release()
+        print("INFO: System write lock released")
 
 def master_setup():
     global master_host
@@ -185,5 +249,8 @@ if __name__ == "__main__":
             print("INFO: Another master is on work. Looping as backups")
             print_loop_flag = False
         time.sleep(0.1)
+    if zk.exists("/ServiceStop"):
+        print("ERROR: Some group totally crush! Can not provide service any more!")
+        exit(0)
     zk.get_children("/GroupMember", watch=get_servers)
     main()

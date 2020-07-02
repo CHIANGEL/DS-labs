@@ -11,3 +11,4 @@ mrtmp.*
 .vscode
 __pycache__
 KV_data
+*.cmd
