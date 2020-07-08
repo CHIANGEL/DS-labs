@@ -12,3 +12,4 @@ mrtmp.*
 __pycache__
 KV_data
 *.cmd
+testcases
